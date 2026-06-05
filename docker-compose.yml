@@ -1,0 +1,17 @@
+services:
+  holo-opensource:
+    build:
+      context: .
+    image: ${IMAGE_NAME:-holo-opensource}:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3001}:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
