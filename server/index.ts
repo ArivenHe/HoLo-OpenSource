@@ -58,7 +58,9 @@ const DEFAULT_MAP_WIDTH = 64;
 const DEFAULT_MAP_HEIGHT = 64;
 const PLAYER_LIMIT = 50;
 const DEFAULT_BOX_COUNT = 220;
-const BROADCAST_HZ = 30;
+const ACTIVE_BROADCAST_HZ = 12;
+const IDLE_BROADCAST_MS = 1000;
+const MAX_DYNAMIC_BUFFERED_BYTES = 512 * 1024;
 const DEFAULT_DURATION_SECONDS = 45 * 60;
 const START_COUNTDOWN_SECONDS = 3;
 const RESPAWN_AFTER_MS = 60_000;
@@ -112,6 +114,8 @@ let match = {
   startedAt: 0,
   endsAt: 0,
 };
+let stateDirty = true;
+let lastDynamicBroadcastAt = 0;
 
 function buildBase(startX: number, startY: number) {
   const cells: Vec2[] = [];
@@ -324,6 +328,10 @@ function assignPlayerToFaction(player: PlayerEntity, factionId: FactionId) {
   };
 }
 
+function markStateDirty() {
+  stateDirty = true;
+}
+
 function attachSocketToPlayer(socket: WebSocket, playerId: string) {
   const existingSocket = socketsByPlayer.get(playerId);
   if (existingSocket && existingSocket !== socket) {
@@ -447,24 +455,25 @@ function pullBoxBehind(previousPlayerPosition: Vec2, delta: Vec2) {
 }
 
 function movePlayer(playerId: string, delta: Vec2) {
-  if (match.status !== 'running') return;
+  if (match.status !== 'running') return false;
 
   const player = players.get(playerId);
-  if (!player || !isPlayerOnline(player)) return;
+  if (!player || !isPlayerOnline(player)) return false;
 
   const previousPlayerPosition = { x: player.x, y: player.y };
   const nextPlayer = { x: player.x + delta.x, y: player.y + delta.y };
 
-  if (isWall(nextPlayer) || playerAt(nextPlayer, player.id)) return;
+  if (isWall(nextPlayer) || playerAt(nextPlayer, player.id)) return false;
 
   const pushedBox = boxAt(nextPlayer);
   if (pushedBox) {
-    if (!pushBoxChain(nextPlayer, delta, player.id)) return;
+    if (!pushBoxChain(nextPlayer, delta, player.id)) return false;
   }
 
   player.x = nextPlayer.x;
   player.y = nextPlayer.y;
   if (!pushedBox) pullBoxBehind(previousPlayerPosition, delta);
+  return true;
 }
 
 function isDeadCorner(box: BoxEntity) {
@@ -480,11 +489,16 @@ function isDeadCorner(box: BoxEntity) {
 
 function respawnStuckBoxes() {
   const now = Date.now();
+  let respawned = false;
+
   boxes.forEach((box) => {
     if (now - box.lastMovedAt > RESPAWN_AFTER_MS && isDeadCorner(box)) {
       boxes.set(box.id, spawnBox(box.id, box.faction));
+      respawned = true;
     }
   });
+
+  return respawned;
 }
 
 function normalizeDuration(durationSeconds: unknown) {
@@ -544,12 +558,19 @@ function staticPayload(selfId?: string) {
 
 function dynamicPayload() {
   const currentOnlinePlayers = onlinePlayers();
+  const boxSnapshots = [...boxes.values()].map((box) => ({
+    id: box.id,
+    faction: box.faction,
+    color: box.color,
+    x: box.x,
+    y: box.y,
+  }));
 
   return {
     type: 'STATE',
     state: {
       players: currentOnlinePlayers,
-      boxes: [...boxes.values()],
+      boxes: boxSnapshots,
       scores,
       match: {
         ...match,
@@ -572,8 +593,24 @@ function send(socket: WebSocket, payload: unknown) {
   }
 }
 
-function broadcast(payload: unknown) {
-  wss.clients.forEach((client) => send(client, payload));
+function sendSerialized(socket: WebSocket, payload: string, options: { skipBackpressured?: boolean } = {}) {
+  if (socket.readyState !== WebSocket.OPEN) return;
+  if (options.skipBackpressured && socket.bufferedAmount > MAX_DYNAMIC_BUFFERED_BYTES) return;
+  socket.send(payload);
+}
+
+function broadcast(payload: unknown, options: { skipBackpressured?: boolean } = {}) {
+  const serialized = JSON.stringify(payload);
+  wss.clients.forEach((client) => sendSerialized(client, serialized, options));
+}
+
+function broadcastDynamicState(force = false) {
+  const now = Date.now();
+  if (!force && !stateDirty && now - lastDynamicBroadcastAt < IDLE_BROADCAST_MS) return;
+
+  broadcast(dynamicPayload(), { skipBackpressured: true });
+  stateDirty = false;
+  lastDynamicBroadcastAt = now;
 }
 
 function endResponse(response: ServerResponse, statusCode: number, body: string) {
@@ -663,7 +700,8 @@ function handleMessage(socket: WebSocket, raw: Buffer) {
       );
       players.set(player.id, player);
       send(socket, staticPayload(player.id));
-      broadcast(dynamicPayload());
+      markStateDirty();
+      broadcastDynamicState(true);
       return;
     }
 
@@ -676,7 +714,8 @@ function handleMessage(socket: WebSocket, raw: Buffer) {
     players.set(player.id, player);
     attachSocketToPlayer(socket, player.id);
     send(socket, staticPayload(player.id));
-    broadcast(dynamicPayload());
+    markStateDirty();
+    broadcastDynamicState(true);
     return;
   }
 
@@ -696,7 +735,8 @@ function handleMessage(socket: WebSocket, raw: Buffer) {
     players.set(player.id, resumedPlayer);
     attachSocketToPlayer(socket, player.id);
     send(socket, staticPayload(player.id));
-    broadcast(dynamicPayload());
+    markStateDirty();
+    broadcastDynamicState(true);
     return;
   }
 
@@ -704,7 +744,7 @@ function handleMessage(socket: WebSocket, raw: Buffer) {
     const playerId = clients.get(socket);
     const delta = moveDeltaFromMessage(message);
     if (!playerId || !delta) return;
-    movePlayer(playerId, delta);
+    if (movePlayer(playerId, delta)) markStateDirty();
     return;
   }
 
@@ -715,12 +755,14 @@ function handleMessage(socket: WebSocket, raw: Buffer) {
     }
 
     startMatch(message.durationSeconds ?? DEFAULT_DURATION_SECONDS, message.mapConfig);
+    markStateDirty();
     broadcast(staticPayload());
     return;
   }
 
   if (message.type === 'ADMIN_RESET') {
     resetMatch(message.mapConfig);
+    markStateDirty();
     broadcast(staticPayload());
   }
 }
@@ -751,21 +793,26 @@ wss.on('connection', (socket) => {
         const player = players.get(playerId);
         if (player) players.set(playerId, { ...player, connected: false });
       }
-      broadcast(dynamicPayload());
+      markStateDirty();
+      broadcastDynamicState(true);
     }
   });
 });
 
 setInterval(() => {
+  let matchChanged = false;
   if (match.status === 'countdown' && countdownSeconds() <= 0) {
     match = { ...match, status: 'running' };
+    matchChanged = true;
   }
   if (match.status === 'running' && remainingSeconds() <= 0) {
     match = { ...match, status: 'ended' };
+    matchChanged = true;
   }
-  if (match.status === 'running') respawnStuckBoxes();
-  broadcast(dynamicPayload());
-}, 1000 / BROADCAST_HZ);
+  if (match.status === 'running' && respawnStuckBoxes()) matchChanged = true;
+  if (matchChanged) markStateDirty();
+  broadcastDynamicState();
+}, 1000 / ACTIVE_BROADCAST_HZ);
 
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`OpenAtom Sokoban server running on http://0.0.0.0:${PORT}`);

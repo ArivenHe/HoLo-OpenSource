@@ -163,6 +163,7 @@ function BaseInstanced({ map, cells, color }: { map: StaticMap; cells: Vec2[]; c
 function BoxesInstanced({ map, boxes }: { map: StaticMap; boxes: BoxEntity[] }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  const colors = useMemo(() => boxes.map((box) => new THREE.Color(box.color)), [boxes]);
   const positionsRef = useRef(new Map<string, THREE.Vector3>());
 
   useFrame((_, delta) => {
@@ -175,7 +176,7 @@ function BoxesInstanced({ map, boxes }: { map: StaticMap; boxes: BoxEntity[] }) 
       dummy.rotation.y = (index % 4) * 0.03;
       dummy.updateMatrix();
       meshRef.current?.setMatrixAt(index, dummy.matrix);
-      meshRef.current?.setColorAt(index, new THREE.Color(box.color));
+      meshRef.current?.setColorAt(index, colors[index]);
     });
 
     if (meshRef.current) {
@@ -195,6 +196,7 @@ function BoxesInstanced({ map, boxes }: { map: StaticMap; boxes: BoxEntity[] }) 
 function PlayersInstanced({ map, players, selfId }: { map: StaticMap; players: PlayerEntity[]; selfId: string | null }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  const colors = useMemo(() => players.map((player) => new THREE.Color(player.color)), [players]);
   const positionsRef = useRef(new Map<string, THREE.Vector3>());
 
   useFrame((_, delta) => {
@@ -207,7 +209,7 @@ function PlayersInstanced({ map, players, selfId }: { map: StaticMap; players: P
       dummy.scale.setScalar(player.id === selfId ? 1.25 : 1);
       dummy.updateMatrix();
       meshRef.current?.setMatrixAt(index, dummy.matrix);
-      meshRef.current?.setColorAt(index, new THREE.Color(player.color));
+      meshRef.current?.setColorAt(index, colors[index]);
     });
 
     if (meshRef.current) {

@@ -1,4 +1,4 @@
-import { Button, Form, Input, Modal, Tag, Typography } from 'antd';
+import { Alert, Button, Form, Input, Modal, Tag, Typography } from 'antd';
 import { Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { factions, useGameStore } from '../store/useGameStore';
@@ -18,6 +18,8 @@ export function TeamSetup({ open, force = false, onClose }: TeamSetupProps) {
   const [form] = Form.useForm<JoinFormValues>();
   const [selectedFaction, setSelectedFaction] = useState<FactionId>('red');
   const join = useGameStore((state) => state.join);
+  const joining = useGameStore((state) => state.joining);
+  const notice = useGameStore((state) => state.notice);
   const players = useGameStore((state) => state.state.players);
   const playerName = useGameStore((state) => state.playerName);
   const selectedStoredFaction = useGameStore((state) => state.selectedFaction);
@@ -38,7 +40,7 @@ export function TeamSetup({ open, force = false, onClose }: TeamSetupProps) {
 
   const handleFinish = (values: JoinFormValues) => {
     join(values.name, selectedFaction);
-    onClose();
+    if (!force) onClose();
     window.requestAnimationFrame(() => {
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
@@ -65,9 +67,10 @@ export function TeamSetup({ open, force = false, onClose }: TeamSetupProps) {
       <Typography.Paragraph type="secondary" className="team-setup-copy">
         填写昵称并选择队伍，NPC 会在队伍人数均衡后开始比赛。
       </Typography.Paragraph>
+      {notice ? <Alert className="team-setup-alert" type="info" showIcon message={notice} /> : null}
       <Form<JoinFormValues> layout="vertical" form={form} onFinish={handleFinish}>
         <Form.Item label="玩家昵称" name="name" rules={[{ required: true, message: '请输入玩家昵称' }]}>
-          <Input placeholder="例如：张三" maxLength={20} />
+          <Input placeholder="例如：张三" maxLength={20} disabled={joining} />
         </Form.Item>
         <div className="team-picker-grid" role="radiogroup" aria-label="队伍">
           {rosters.map((roster) => (
@@ -77,6 +80,7 @@ export function TeamSetup({ open, force = false, onClose }: TeamSetupProps) {
               aria-checked={selectedFaction === roster.id}
               className={selectedFaction === roster.id ? 'team-pick-card selected' : 'team-pick-card'}
               key={roster.id}
+              disabled={joining}
               style={{ borderColor: roster.color }}
               onClick={() => setSelectedFaction(roster.id)}
             >
@@ -93,7 +97,7 @@ export function TeamSetup({ open, force = false, onClose }: TeamSetupProps) {
             </button>
           ))}
         </div>
-        <Button type="primary" htmlType="submit" block size="large">
+        <Button type="primary" htmlType="submit" block size="large" loading={joining}>
           加入 {factions.find((faction) => faction.id === selectedFaction)?.name}
         </Button>
       </Form>

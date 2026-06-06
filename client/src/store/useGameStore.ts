@@ -27,6 +27,7 @@ interface GameState {
   playerName: string;
   selectedFaction: FactionId;
   notice: string | null;
+  joining: boolean;
   map: StaticMap | null;
   state: ServerState;
   cameraSettings: CameraSettings;
@@ -134,6 +135,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   playerName: storedIdentity?.name ?? '',
   selectedFaction: storedIdentity?.faction ?? 'red',
   notice: null,
+  joining: false,
   map: null,
   state: initialState,
   cameraSettings: initialCameraSettings,
@@ -153,11 +155,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
 
     socket.addEventListener('close', () => {
-      set({ connected: false, socket: null, notice: '服务器连接已断开。' });
+      set({ connected: false, socket: null, joining: false, notice: '服务器连接已断开。' });
     });
 
     socket.addEventListener('error', () => {
-      set({ notice: 'WebSocket 连接异常，请确认 server 已启动。' });
+      set({ joining: false, notice: 'WebSocket 连接异常，请确认 server 已启动。' });
     });
 
     socket.addEventListener('message', (event) => {
@@ -181,6 +183,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           selfId: nextSelfId,
           map: message.map,
           state: message.state,
+          joining: message.selfId ? false : state.joining,
           notice: message.selfId ? '加入成功，等待 NPC 开始比赛。' : state.notice,
         }));
         return;
@@ -194,11 +197,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (message.type === 'ERROR') {
         if (message.code === 'PLAYER_NOT_FOUND') {
           clearStoredIdentity();
-          set({ selfId: null, playerName: '', notice: message.message });
+          set({ selfId: null, playerName: '', joining: false, notice: message.message });
           return;
         }
 
-        set({ notice: message.message });
+        set({ joining: false, notice: message.message });
       }
     });
 
@@ -209,7 +212,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const socket = get().socket;
     const trimmedName = name.trim() || 'Player';
 
-    set({ playerName: trimmedName, selectedFaction: faction });
+    set({ playerName: trimmedName, selectedFaction: faction, joining: true, notice: '正在加入队伍...' });
 
     if (socket?.readyState === WebSocket.OPEN) {
       send(socket, { type: 'JOIN', name: trimmedName, faction });

@@ -46,8 +46,8 @@ export interface BoxEntity extends Vec2 {
   id: string;
   faction: FactionId;
   color: string;
-  code: string;
-  lastMovedAt: number;
+  code?: string;
+  lastMovedAt?: number;
 }
 
 export interface MatchInfo {

@@ -566,6 +566,10 @@ select {
   margin-top: 0;
 }
 
+.team-setup-alert {
+  margin-bottom: 12px;
+}
+
 .terminal-modal {
   position: relative;
   overflow: hidden;
