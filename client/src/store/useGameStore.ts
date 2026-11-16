@@ -27,7 +27,7 @@ export const factions = FACTIONS;
 const identity = !spectator() ? storedIdentity() : null;
 const initialState: ServerState = { players: [], boxes: [], scores: { red: 0, blue: 0, green: 0, yellow: 0 },
   match: { status: 'waiting', durationSeconds: 2700, startedAt: 0, endsAt: 0, remainingSeconds: 2700, countdownSeconds: 0 },
-  stats: { onlinePlayers: 0, playerLimit: 50, totalPlayers: 0, boxCount: 220 }, roomConfig: { playerLimit: 50, maxPlayerLimit: 50, version: 0 } };
+  stats: { onlinePlayers: 0, playerLimit: 200, totalPlayers: 0, boxCount: 220 }, roomConfig: { playerLimit: 200, maxPlayerLimit: 200, version: 0 } };
 let reconnectTimer: number | undefined, attempts = 0, heartbeat: number | undefined;
 let pending: PendingInput[] = [], seq = 0, lastInputAt = -Infinity;
 let currentMatchId = '', currentMapVersion = -1, currentRevision = -1, ackRevision = -1;

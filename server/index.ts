@@ -14,15 +14,15 @@ function envInt(name: string, fallback: number, min: number, max: number) {
   return value;
 }
 const PORT = envInt('PORT', 3001, 0, 65535);
-const MAX_PLAYERS = envInt('MAX_PLAYER_LIMIT', 50, 1, 2000);
-const MAX_CONNECTIONS = envInt('MAX_CONNECTIONS', Math.max(100, MAX_PLAYERS + 50), MAX_PLAYERS, 10000);
+const MAX_PLAYERS = envInt('MAX_PLAYER_LIMIT', 200, 1, 2000);
+const MAX_CONNECTIONS = envInt('MAX_CONNECTIONS', Math.max(300, MAX_PLAYERS + 100), MAX_PLAYERS, 10000);
 const BROADCAST_HZ = envInt('BROADCAST_HZ', 12, 5, 30);
 const BUFFER_LIMIT = envInt('MAX_BUFFERED_BYTES', 128 * 1024, 1024, 4 * 1024 * 1024);
 const FULL_SYNC = process.env.SYNC_MODE === 'full';
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || randomBytes(24).toString('base64url');
 if (!process.env.ADMIN_TOKEN) console.log(`Temporary admin password (set ADMIN_TOKEN for a stable password): ${ADMIN_TOKEN}`);
 const DEFAULT_DURATION = 45 * 60;
-const roomConfig = { playerLimit: envInt('DEFAULT_PLAYER_LIMIT', Math.min(50, MAX_PLAYERS), 1, MAX_PLAYERS), maxPlayerLimit: MAX_PLAYERS, version: 0 };
+const roomConfig = { playerLimit: envInt('DEFAULT_PLAYER_LIMIT', Math.min(200, MAX_PLAYERS), 1, MAX_PLAYERS), maxPlayerLimit: MAX_PLAYERS, version: 0 };
 let world = new World({ width: 64, height: 64, boxCount: 220 }, [], roomConfig.playerLimit);
 let matchId = randomUUID(), mapVersion = 1, revision = 1, lastBroadcastRevision = 0;
 let match: MatchInfo = { status: 'waiting', durationSeconds: DEFAULT_DURATION, startedAt: 0, endsAt: 0, remainingSeconds: DEFAULT_DURATION, countdownSeconds: 0 };

@@ -82,9 +82,9 @@ jobs:
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.repository_owner }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-          DEFAULT_PLAYER_LIMIT: ${{ vars.DEFAULT_PLAYER_LIMIT || '50' }}
-          MAX_PLAYER_LIMIT: ${{ vars.MAX_PLAYER_LIMIT || '50' }}
-          MAX_CONNECTIONS: ${{ vars.MAX_CONNECTIONS || '100' }}
+          DEFAULT_PLAYER_LIMIT: ${{ vars.DEFAULT_PLAYER_LIMIT || '200' }}
+          MAX_PLAYER_LIMIT: ${{ vars.MAX_PLAYER_LIMIT || '200' }}
+          MAX_CONNECTIONS: ${{ vars.MAX_CONNECTIONS || '300' }}
           BROADCAST_HZ: ${{ vars.BROADCAST_HZ || '12' }}
           SYNC_MODE: ${{ vars.SYNC_MODE || 'delta' }}
         with:
@@ -129,9 +129,9 @@ jobs:
                   NODE_ENV: production
                   PORT: 3001
                   ADMIN_TOKEN: ${ADMIN_TOKEN:?Set ADMIN_TOKEN}
-                  DEFAULT_PLAYER_LIMIT: ${DEFAULT_PLAYER_LIMIT:-50}
-                  MAX_PLAYER_LIMIT: ${MAX_PLAYER_LIMIT:-50}
-                  MAX_CONNECTIONS: ${MAX_CONNECTIONS:-100}
+                  DEFAULT_PLAYER_LIMIT: ${DEFAULT_PLAYER_LIMIT:-200}
+                  MAX_PLAYER_LIMIT: ${MAX_PLAYER_LIMIT:-200}
+                  MAX_CONNECTIONS: ${MAX_CONNECTIONS:-300}
                   BROADCAST_HZ: ${BROADCAST_HZ:-12}
                   SYNC_MODE: ${SYNC_MODE:-delta}
                 healthcheck:

@@ -228,7 +228,7 @@ export function UIOverlay() {
   const [mapWidth, setMapWidth] = useState(64);
   const [mapHeight, setMapHeight] = useState(64);
   const [boxCount, setBoxCount] = useState(220);
-  const [playerLimit, setPlayerLimit] = useState(50);
+  const [playerLimit, setPlayerLimit] = useState(200);
   const [adminToken, setAdminToken] = useState('');
   const adminAuthorized = useGameStore((s) => s.adminAuthorized);
   const authenticateAdmin = useGameStore((s) => s.authenticateAdmin);

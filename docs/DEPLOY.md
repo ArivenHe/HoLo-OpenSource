@@ -44,9 +44,9 @@ docker compose up -d --build
 
 | 名称 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DEFAULT_PLAYER_LIMIT` | `50` | 服务启动后的默认人数上限 |
-| `MAX_PLAYER_LIMIT` | `50` | 后台可填写的最大人数，须经目标服务器压测 |
-| `MAX_CONNECTIONS` | `100` | 玩家、后台、观众及未订阅连接总数，不能低于人数硬上限 |
+| `DEFAULT_PLAYER_LIMIT` | `200` | 服务启动后的默认人数上限 |
+| `MAX_PLAYER_LIMIT` | `200` | 后台可填写的最大人数，默认开放 1～200 人 |
+| `MAX_CONNECTIONS` | `300` | 玩家、后台、观众及未订阅连接总数，不能低于人数硬上限 |
 | `BROADCAST_HZ` | `12` | 活跃同步频率，允许 5～30；先优化每包成本再提高 |
 | `SYNC_MODE` | `delta` | `full` 可回退到全量广播，客户端协议仍为 v2 |
 | `SSH_PORT` | `22` | SSH 端口 |
@@ -90,7 +90,7 @@ location / {
 
 `.env` 中设置 `DEFAULT_PLAYER_LIMIT`、`MAX_PLAYER_LIMIT`、`MAX_CONNECTIONS` 和 `ADMIN_TOKEN` 后，执行 `docker compose up -d` 使进程配置生效。Compose 已显式传递这些配置；仅编辑 `.env` 不会改变运行中的容器。
 
-人数默认与硬上限都为 50。若目标服务器验证通过 100 人，可将 `MAX_PLAYER_LIMIT=100`、`MAX_CONNECTIONS=150`，在 NPC 后台解锁后保存实际房间人数。更高人数同时增加计算量与广播扇出，应检查 CPU、容器限流、出口带宽、反向代理连接数和系统文件描述符上限。
+人数默认值与后台硬上限均为 200，总连接上限默认 300，给观众和后台预留连接。NPC 后台可保存 1～200 人。GitHub 自动部署和本地 Compose 的默认配置已同步；若已有环境显式设置了 `MAX_PLAYER_LIMIT=50`，应改为 200，并将 `DEFAULT_PLAYER_LIMIT` 改为 200、`MAX_CONNECTIONS` 改为 300 后重新部署。更高人数同时增加计算量与广播扇出，应检查 CPU、容器限流、出口带宽、反向代理连接数和系统文件描述符上限。
 
 本地 Compose 另支持 `MAX_BUFFERED_BYTES`（默认 131072）和 `SYNC_MODE=full`。慢连接持续积压约 3 秒后会关闭并重连，不会持续堆积历史状态；心跳约 15 秒一次，约 30 秒无响应清理。代理超时应大于失活判定时间。
 
