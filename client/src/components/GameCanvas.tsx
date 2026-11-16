@@ -2,10 +2,53 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { ContactShadows, Grid, OrbitControls, Text } from '@react-three/drei';
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { useGameStore } from '../store/useGameStore';
+import { clearDirections, pressDirection, releaseDirection } from '../store/input';
+import { estimatedServerTime, useGameStore } from '../store/useGameStore';
 import type { BoxEntity, CameraSettings, Direction, PlayerEntity, StaticMap, Vec2 } from '../types/game';
 
 const CELL_SIZE = 0.86;
+const shownPlayers = new Map<string, THREE.Vector3>();
+const shownBoxes = new Map<string, THREE.Vector3>();
+
+// One position source for every mesh, label, marker and the following camera.
+function RenderPositions({ map, players, boxes }: { map: StaticMap; players: PlayerEntity[]; boxes: BoxEntity[] }) {
+  const snapshotTime = useGameStore(s => s.snapshotTime);
+  const samples = useRef<Array<{ time: number; players: Map<string, PlayerEntity>; boxes: Map<string, BoxEntity> }>>([]);
+  const target = useMemo(() => new THREE.Vector3(), []);
+  useLayoutEffect(() => {
+    const sample = { time: snapshotTime, players: new Map(players.map(p => [p.id, p])), boxes: new Map(boxes.map(b => [b.id, b])) };
+    if (samples.current[samples.current.length - 1]?.time === snapshotTime) samples.current[samples.current.length - 1] = sample;
+    else samples.current.push(sample);
+    if (samples.current.length > 12) samples.current.shift();
+  }, [snapshotTime, players, boxes]);
+  useLayoutEffect(() => {
+    shownPlayers.clear(); shownBoxes.clear();
+    return () => { shownPlayers.clear(); shownBoxes.clear(); };
+  }, [map]);
+  useFrame((_, delta) => {
+    const g = useGameStore.getState(), time = estimatedServerTime() - 75, history = samples.current;
+    let left = history[0], right = history[history.length - 1];
+    for (const sample of history) { if (sample.time <= time) left = sample; if (sample.time >= time) { right = sample; break; } }
+    const alpha = left && right && right.time > left.time ? THREE.MathUtils.clamp((time - left.time) / (right.time - left.time), 0, 1) : 1;
+    for (const [entities, shown, kind] of [[players, shownPlayers, 'players'], [boxes, shownBoxes, 'boxes']] as const) {
+      const live = new Set<string>();
+      for (const entity of entities) {
+        live.add(entity.id);
+        const isSelf = kind === 'players' && entity.id === g.selfId && g.displaySelf;
+        const a = left?.[kind].get(entity.id) ?? entity, b = right?.[kind].get(entity.id) ?? entity;
+        const x = isSelf ? g.displaySelf!.x : THREE.MathUtils.lerp(a.x, b.x, alpha);
+        const y = isSelf ? g.displaySelf!.y : THREE.MathUtils.lerp(a.y, b.y, alpha);
+        target.set((x - (map.width - 1) / 2) * CELL_SIZE, kind === 'players' ? .55 : .5, (y - (map.height - 1) / 2) * CELL_SIZE);
+        const current = shown.get(entity.id);
+        if (!current) shown.set(entity.id, target.clone());
+        else if (isSelf && current.distanceTo(target) < 2.5) current.lerp(target, 1 - Math.exp(-delta * 60));
+        else current.copy(target);
+      }
+      for (const id of shown.keys()) if (!live.has(id)) shown.delete(id);
+    }
+  }, -1);
+  return null;
+}
 
 function toWorld(map: StaticMap, position: Vec2, y = 0) {
   return new THREE.Vector3(
@@ -39,7 +82,6 @@ function useKeyboardControls() {
       d: 'right',
       D: 'right',
     };
-    const pressed = new Set<Direction>();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -51,34 +93,22 @@ function useKeyboardControls() {
       const direction = keyMap[event.code] ?? keyMap[event.key];
       if (!direction) return;
       event.preventDefault();
-      pressed.add(direction);
+      if (!event.repeat) pressDirection(`key-${event.code || event.key}`, direction);
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
       const direction = keyMap[event.code] ?? keyMap[event.key];
       if (!direction) return;
       event.preventDefault();
-      pressed.delete(direction);
+      releaseDirection(`key-${event.code || event.key}`);
     };
-
-    const clearPressed = () => pressed.clear();
-    const timer = window.setInterval(() => {
-      const delta = {
-        x: Number(pressed.has('right')) - Number(pressed.has('left')),
-        y: Number(pressed.has('down')) - Number(pressed.has('up')),
-      };
-
-      if (delta.x !== 0 || delta.y !== 0) sendMove(delta);
-    }, 115);
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('blur', clearPressed);
     return () => {
-      window.clearInterval(timer);
+      clearDirections();
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('blur', clearPressed);
     };
   }, [sendMove]);
 }
@@ -163,25 +193,25 @@ function BaseInstanced({ map, cells, color }: { map: StaticMap; cells: Vec2[]; c
 function BoxesInstanced({ map, boxes }: { map: StaticMap; boxes: BoxEntity[] }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
-  const colors = useMemo(() => boxes.map((box) => new THREE.Color(box.color)), [boxes]);
-  const positionsRef = useRef(new Map<string, THREE.Vector3>());
+  const colors = useMemo(() => boxes.map((box) => new THREE.Color(box.color)), [boxes.map(b => `${b.id}:${b.color}`).join('|')]);
+  useLayoutEffect(() => {
+    colors.forEach((color, i) => meshRef.current?.setColorAt(i, color));
+    if (meshRef.current?.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
+  }, [colors]);
+
 
   useFrame((_, delta) => {
     boxes.forEach((box, index) => {
-      const current = positionsRef.current.get(box.id) ?? toWorld(map, box, 0.5);
-      const target = toWorld(map, box, 0.5);
-      current.lerp(target, Math.min(1, delta * 12));
-      positionsRef.current.set(box.id, current);
+      const current = shownBoxes.get(box.id);
+      if (!current) return;
       dummy.position.copy(current);
       dummy.rotation.y = (index % 4) * 0.03;
       dummy.updateMatrix();
       meshRef.current?.setMatrixAt(index, dummy.matrix);
-      meshRef.current?.setColorAt(index, colors[index]);
     });
 
     if (meshRef.current) {
       meshRef.current.instanceMatrix.needsUpdate = true;
-      if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
     }
   });
 
@@ -196,25 +226,25 @@ function BoxesInstanced({ map, boxes }: { map: StaticMap; boxes: BoxEntity[] }) 
 function PlayersInstanced({ map, players, selfId }: { map: StaticMap; players: PlayerEntity[]; selfId: string | null }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
-  const colors = useMemo(() => players.map((player) => new THREE.Color(player.color)), [players]);
-  const positionsRef = useRef(new Map<string, THREE.Vector3>());
+  const colors = useMemo(() => players.map((player) => new THREE.Color(player.color)), [players.map(p => `${p.id}:${p.color}`).join('|')]);
+  useLayoutEffect(() => {
+    colors.forEach((color, i) => meshRef.current?.setColorAt(i, color));
+    if (meshRef.current?.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
+  }, [colors]);
+
 
   useFrame((_, delta) => {
     players.forEach((player, index) => {
-      const current = positionsRef.current.get(player.id) ?? toWorld(map, player, 0.55);
-      const target = toWorld(map, player, 0.55);
-      current.lerp(target, Math.min(1, delta * 14));
-      positionsRef.current.set(player.id, current);
+      const current = shownPlayers.get(player.id);
+      if (!current) return;
       dummy.position.copy(current);
       dummy.scale.setScalar(player.id === selfId ? 1.25 : 1);
       dummy.updateMatrix();
       meshRef.current?.setMatrixAt(index, dummy.matrix);
-      meshRef.current?.setColorAt(index, colors[index]);
     });
 
     if (meshRef.current) {
       meshRef.current.instanceMatrix.needsUpdate = true;
-      if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
     }
   });
 
@@ -228,17 +258,13 @@ function PlayersInstanced({ map, players, selfId }: { map: StaticMap; players: P
 
 function SelfMarker({ map, players, selfId }: { map: StaticMap; players: PlayerEntity[]; selfId: string | null }) {
   const groupRef = useRef<THREE.Group>(null);
-  const currentRef = useRef<THREE.Vector3 | null>(null);
   const self = players.find((player) => player.id === selfId);
 
   useFrame((_, delta) => {
     if (!self || !groupRef.current) return;
 
-    const target = toWorld(map, self, 0.12);
-    const current = currentRef.current ?? target.clone();
-    current.lerp(target, Math.min(1, delta * 14));
-    currentRef.current = current;
-    groupRef.current.position.copy(current);
+    const current = shownPlayers.get(self.id); if (!current) return;
+    groupRef.current.position.copy(current); groupRef.current.position.y = .12;
     groupRef.current.rotation.y += delta * 1.6;
   });
 
@@ -268,17 +294,14 @@ function PlayerNameLabel({
   selfId: string | null;
 }) {
   const groupRef = useRef<THREE.Group>(null);
-  const currentRef = useRef<THREE.Vector3 | null>(null);
   const isSelf = player.id === selfId;
 
   useFrame(({ camera }, delta) => {
     if (!groupRef.current) return;
 
-    const target = toWorld(map, player, isSelf ? 1.72 : 1.5);
-    const current = currentRef.current ?? target.clone();
-    current.lerp(target, Math.min(1, delta * 14));
-    currentRef.current = current;
-    groupRef.current.position.copy(current);
+    const current = shownPlayers.get(player.id); if (!current) return;
+    groupRef.current.visible = isSelf || current.distanceToSquared(camera.position) < 45 * 45;
+    groupRef.current.position.copy(current); groupRef.current.position.y = isSelf ? 1.72 : 1.5;
     groupRef.current.quaternion.copy(camera.quaternion);
   });
 
@@ -350,21 +373,23 @@ function FollowCamera({
   cameraSettings: CameraSettings;
 }) {
   const lookTargetRef = useRef(new THREE.Vector3());
+  const desiredRef = useRef(new THREE.Vector3());
 
   useFrame(({ camera, clock }, delta) => {
     const player = players.find((item) => item.id === selfId);
     if (!player) return;
 
-    const target = toWorld(map, player, 0.72);
-    const desiredPosition = target.clone().add(new THREE.Vector3(0, cameraSettings.height, cameraSettings.distance));
+    const target = shownPlayers.get(player.id); if (!target) return;
+    const desiredPosition = desiredRef.current.copy(target);
+    desiredPosition.y = .72 + cameraSettings.height; desiredPosition.z += cameraSettings.distance;
     if (cameraSettings.shake > 0) {
       const elapsed = clock.getElapsedTime();
       const amplitude = cameraSettings.shake * 0.18;
       desiredPosition.x += Math.sin(elapsed * 19) * amplitude;
       desiredPosition.z += Math.cos(elapsed * 17) * amplitude;
     }
-    const positionAlpha = Math.min(1, delta * 5.5);
-    const targetAlpha = Math.min(1, delta * 9);
+    const positionAlpha = Math.min(1, delta * 30);
+    const targetAlpha = positionAlpha;
 
     if (camera.position.distanceTo(desiredPosition) > 28) {
       camera.position.copy(desiredPosition);
@@ -392,6 +417,7 @@ function Scene() {
 
   return (
     <>
+      <RenderPositions map={map} players={players} boxes={boxes} />
       <ambientLight intensity={0.78} />
       <hemisphereLight args={['#dbeafe', '#0f172a', 1.2]} />
       <directionalLight castShadow color="#dbeafe" intensity={3.2} position={[10, 22, 12]} />
@@ -436,6 +462,7 @@ function Scene() {
 export function GameCanvas() {
   useKeyboardControls();
   const spectator = window.location.pathname === '/spectator';
+  const renderEpoch = useGameStore(s => s.renderEpoch);
 
   return (
     <Canvas
@@ -448,7 +475,7 @@ export function GameCanvas() {
       <color attach="background" args={['#050a16']} />
       <fog attach="fog" args={['#050a16', 48, 95]} />
       <Suspense fallback={null}>
-        <Scene />
+        <Scene key={renderEpoch} />
       </Suspense>
     </Canvas>
   );

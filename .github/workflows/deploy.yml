@@ -34,6 +34,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Test application
+        run: npm test
+
       - name: Build application
         run: npm run build
 
@@ -78,13 +81,19 @@ jobs:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH || 'holo-opensource-deploy' }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.repository_owner }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          DEFAULT_PLAYER_LIMIT: ${{ vars.DEFAULT_PLAYER_LIMIT || '50' }}
+          MAX_PLAYER_LIMIT: ${{ vars.MAX_PLAYER_LIMIT || '50' }}
+          MAX_CONNECTIONS: ${{ vars.MAX_CONNECTIONS || '100' }}
+          BROADCAST_HZ: ${{ vars.BROADCAST_HZ || '12' }}
+          SYNC_MODE: ${{ vars.SYNC_MODE || 'delta' }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           password: ${{ secrets.SSH_PASSWORD }}
           port: ${{ vars.SSH_PORT || '22' }}
           command_timeout: 10m
-          envs: IMAGE_NAME,IMAGE_TAG,APP_PORT,DEPLOY_PATH,GHCR_USERNAME,GHCR_TOKEN
+          envs: IMAGE_NAME,IMAGE_TAG,APP_PORT,DEPLOY_PATH,GHCR_USERNAME,GHCR_TOKEN,ADMIN_TOKEN,DEFAULT_PLAYER_LIMIT,MAX_PLAYER_LIMIT,MAX_CONNECTIONS,BROADCAST_HZ,SYNC_MODE
           script: |
             set -eu
 
@@ -92,10 +101,21 @@ jobs:
             cd "$DEPLOY_PATH"
             umask 077
 
+            case "$ADMIN_TOKEN" in
+              ''|*[!A-Za-z0-9_-]*) echo 'Set ADMIN_TOKEN to a random hex/base64url password in production secrets'; exit 1 ;;
+            esac
+            [ "${#ADMIN_TOKEN}" -ge 16 ] || { echo 'ADMIN_TOKEN must contain at least 16 characters'; exit 1; }
+
             cat > .env <<EOF
             IMAGE_NAME=$IMAGE_NAME
             IMAGE_TAG=$IMAGE_TAG
             APP_PORT=$APP_PORT
+            ADMIN_TOKEN=$ADMIN_TOKEN
+            DEFAULT_PLAYER_LIMIT=$DEFAULT_PLAYER_LIMIT
+            MAX_PLAYER_LIMIT=$MAX_PLAYER_LIMIT
+            MAX_CONNECTIONS=$MAX_CONNECTIONS
+            BROADCAST_HZ=$BROADCAST_HZ
+            SYNC_MODE=$SYNC_MODE
             EOF
 
             cat > docker-compose.yml <<'COMPOSE'
@@ -108,6 +128,12 @@ jobs:
                 environment:
                   NODE_ENV: production
                   PORT: 3001
+                  ADMIN_TOKEN: ${ADMIN_TOKEN:?Set ADMIN_TOKEN}
+                  DEFAULT_PLAYER_LIMIT: ${DEFAULT_PLAYER_LIMIT:-50}
+                  MAX_PLAYER_LIMIT: ${MAX_PLAYER_LIMIT:-50}
+                  MAX_CONNECTIONS: ${MAX_CONNECTIONS:-100}
+                  BROADCAST_HZ: ${BROADCAST_HZ:-12}
+                  SYNC_MODE: ${SYNC_MODE:-delta}
                 healthcheck:
                   test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
                   interval: 15s

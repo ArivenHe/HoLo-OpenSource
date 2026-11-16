@@ -7,7 +7,8 @@ import type { LeaderboardRow } from '../types/game';
 export function Leaderboard() {
   const scores = useGameStore((state) => state.state.scores);
   const match = useGameStore((state) => state.state.match);
-  const players = useGameStore((state) => state.state.players);
+  const players = useGameStore((state) => state.roster);
+  const adminAuthorized = useGameStore((state) => state.adminAuthorized);
   const adminReset = useGameStore((state) => state.adminReset);
   const entries = leaderboardRows(scores);
   const maxScore = Math.max(1, ...entries.map((entry) => entry.score));
@@ -59,7 +60,7 @@ export function Leaderboard() {
           <Typography.Title level={3}>实时阵营排行榜</Typography.Title>
           <Typography.Text type="secondary">剩余 {formatDuration(match.remainingSeconds)}</Typography.Text>
         </div>
-        <Button danger size="small" icon={<RotateCcw size={14} />} onClick={() => adminReset()}>
+        <Button disabled={!adminAuthorized} danger size="small" icon={<RotateCcw size={14} />} onClick={() => adminReset()}>
           后台重置
         </Button>
       </div>

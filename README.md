@@ -1,107 +1,74 @@
-# 50-Player Real-Time 3D Sokoban Battle Royale
+# 多人实时 3D 推箱子阵营战
 
-开放原子开源社团 PU 活动用的 50 人实时 3D 推箱子阵营战。所有玩家填写昵称并手动加入 Red / Blue / Green / Yellow 队伍，后台确认队伍人数均衡后统一开始。玩家把本阵营颜色的箱子推入同色基地，限定时间内得分最高的阵营获胜。
+开放原子开源社团 PU 活动用的多人实时 3D 推箱子。玩家填写昵称，手动选择 Red / Blue / Green / Yellow 队伍，把同色箱子推入基地得分。NPC 统一开始，队伍无需均衡，也无需满员。
 
-## 目录
-
-```text
-server/
-  index.ts                    WebSocket 权威状态服务器、碰撞、得分、重生、30Hz 广播
-  tsconfig.json
-client/
-  index.html
-  vite.config.ts
-  src/
-    App.tsx
-    main.tsx
-    store/useGameStore.ts     Zustand + WebSocket sync hook
-    types/game.ts             前后端消息与实体类型
-    components/GameCanvas.tsx  R3F instanced mesh 大地图渲染
-    components/UIOverlay.tsx   HUD + NPC 后台控制
-    components/Leaderboard.tsx 阵营排行榜
-    components/TeamSetup.tsx   玩家填写昵称并手动选队加入
-```
-
-## 玩法
-
-- 默认一张 `64 x 64` 巨型 3D 网格地图，NPC 后台可自定义宽、高和箱子数量。
-- 4 个阵营基地：Red、Blue、Green、Yellow，玩家手动选队。
-- 最多 50 名玩家同时在线。
-- 地图默认生成 220 个颜色箱子。
-- 玩家只能通过 WebSocket 向服务端发送移动输入，服务端权威判定碰撞和推箱。
-- 玩家页提供键盘和屏幕方向键两套输入方式，同时按两个方向键会连续斜向移动。
-- 玩家可以自己调整视角高度、距离和抖动强度。
-- 未开始时玩家页显示等待 NPC 开始，NPC 开始后先显示 3 秒倒计时，再进入游戏。
-- 玩家选队时可看到每个队伍已有成员，后台可看到队伍成员和均衡状态。
-- 同色箱子进入同色基地：该阵营 `+1`。
-- 错色箱子进入基地：不加分。
-- 玩家离开身后相邻箱子时会拉动该箱子，贴边箱子可以被拉回战场内。
-- 没有步数限制。
-- NPC 后台统一开始/重置比赛，默认 45 分钟。
-- 卡在死角 60 秒未移动的箱子会自动重生。
-- `/spectator` 路由是投影用 God View。
-
-## 本地启动
+## 启动
 
 ```bash
-npm install
-
+npm ci
 npm run dev
 ```
 
-默认地址：
+玩家页：[http://localhost:5173](http://localhost:5173)；观众与 NPC 后台：[http://localhost:5173/spectator](http://localhost:5173/spectator)。开发服务器默认 WebSocket 端口为 `3001`。
 
-```text
-Client: http://localhost:5173
-Server: ws://localhost:3001
-God View: http://localhost:5173/spectator
-```
+后台先输入管理密码。直接启动时可通过 `ADMIN_TOKEN` 指定；未设置时服务端终端打印临时密码，重启后变化。管理密码只提供给 NPC，公开观众不需要密码。
 
-如果前端端口被占用，Vite 会自动切换到下一个可用端口，控制台会显示实际地址。
-
-## 构建检查
+生产构建与启动：
 
 ```bash
 npm run build
+ADMIN_TOKEN=your-random-password npm start
 ```
 
-构建后可以用单端口生产服务启动前端、WebSocket 和健康检查：
+生产服务同一端口提供前端、WebSocket 和 `/health`，默认地址：[http://localhost:3001](http://localhost:3001)。Docker 与自动部署见 [docs/DEPLOY.md](docs/DEPLOY.md)。
+
+## 玩法与房间设置
+
+- 默认 50 人上限，后台在等待中或比赛结束后修改并点击“保存房间设置”，立即生效；服务重启恢复部署默认值。
+- 服务器 `MAX_PLAYER_LIMIT` 控制后台允许填写的最大人数，默认仍为 50；完成实际服务器压测后再提高。
+- 不能把人数下调到当前在线人数以下。观众不占玩家名额，但受总连接数限制。
+- 至少 1 名在线玩家即可开始，允许空队和人数不均衡；开局前有 3 秒倒计时。
+- 地图默认 `64 × 64`、220 个箱子，后台可调整宽高与箱子数量。新地图容量不足会拒绝应用，保留当前战场。
+- 键盘 WASD / 方向键与屏幕方向键都支持长按及斜向移动；首步即时发送，长按约 120ms 一步，服务端最短步间隔为 115ms。
+- 允许连推箱子；向空地移动时会拉动身后的相邻箱子。同色进基地 +1，错色不加分，没有步数限制。
+- 卡在墙角且 60 秒未移动的箱子会重生。默认每局 45 分钟。
+- 断线自动退避重连，离线身份保留 5 分钟；断线释放名额，满员时恢复会被拒绝，不补发离线操作。
+- 本人空地移动有最多 2 步、250ms 的本地预测；推箱、拉箱和得分由服务端确认。页面显示 RTT 与连接状态。
+
+## 实时同步与并发
+
+服务端维护权威状态及格子占位索引；玩家发送输入序号与比赛标识，服务端限速并确认结果。默认 12Hz 稀疏增量广播，约每 5 秒全量校准；慢连接跳过增量后必须用快照恢复。消息长度、输入速率、短队列、连接总数及发送积压都有上限。
+
+服务器仍为单房间单进程内存状态；重启或升级会丢失当前比赛。同一房间不能通过随机分流到多个副本扩容。
+
+## 验证
 
 ```bash
-npm start
+npm test
+npm run build
 ```
+
+本机负载测试示例（先启动服务并设置匹配的管理密码）：
+
+```bash
+ADMIN_TOKEN=your-random-password npm run loadtest -- --players 50 --spectators 5 --seconds 30 --output /tmp/holo-load.json
+```
+
+测试会调整测试房间人数并开始比赛，请使用独立测试实例；远程目标须显式传入 `--allow-remote`。报告包含加入流量、输入确认分位数、服务端 CPU、事件循环和 RSS。实测记录与限制见 [docs/performance-report.md](docs/performance-report.md)。完整设计见 [docs/player-capacity-and-latency-plan.md](docs/player-capacity-and-latency-plan.md)。
+
+## 代码目录
 
 ```text
-App: http://localhost:3001
-Health: http://localhost:3001/health
+shared/protocol.ts                 前后端共用协议、规则常量与类型
+server/world.ts                    权威网格、出生、碰撞、推拉箱与得分
+server/transport.ts                令牌桶、背压与同步基线判断
+server/index.ts                    会话、房间配置、输入调度、广播、HTTP
+client/src/store/useGameStore.ts   WebSocket、身份恢复、状态归并与校正
+client/src/store/sync.ts           增量合并与有界预测
+client/src/store/input.ts          键盘/触屏统一输入
+client/src/components/             3D 场景、玩家页面与后台
+scripts/loadtest.ts                可复现的本机操作负载
+tests/                            世界规则、协议与真实 WebSocket 集成测试
 ```
 
-## Docker 与自动部署
-
-本地 Docker 启动：
-
-```bash
-cp .env.example .env
-docker compose up -d --build
-```
-
-项目已配置 GitHub Actions 构建 GHCR 镜像，并通过 GitHub Environment 中的 SSH 用户名和密码自动部署。服务器准备、`production` Environment secrets/variables 和反向代理配置见 [docs/DEPLOY.md](docs/DEPLOY.md)。
-
-## 消息协议
-
-客户端发送：
-
-```ts
-{ type: 'JOIN', name: string, faction: 'red' | 'blue' | 'green' | 'yellow' }
-{ type: 'MOVE_PLAYER', direction?: 'up' | 'down' | 'left' | 'right', delta?: { x: -1 | 0 | 1, y: -1 | 0 | 1 } }
-{ type: 'ADMIN_START', durationSeconds: number, mapConfig?: { width: number, height: number, boxCount: number } }
-{ type: 'ADMIN_RESET', mapConfig?: { width: number, height: number, boxCount: number } }
-```
-
-服务端发送：
-
-```ts
-{ type: 'INIT', selfId?: string, map, state }
-{ type: 'STATE', state } // state.stats.onlinePlayers 是真实在线玩家数，state.match.countdownSeconds 是开赛倒计时
-{ type: 'ERROR', message: string }
-```
+协议版本为 2；旧页面或旧身份需要刷新、重新加入。INIT 携带地图与全量状态，DELTA 携带版本化增删改，INPUT_ACK 确认输入，RESYNC 请求最新快照；鉴权、容量和每个消息字段均由服务端校验。

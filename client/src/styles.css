@@ -732,3 +732,10 @@ select {
     width: 100%;
   }
 }
+
+.network-status { position: absolute; z-index: 8; top: 66px; right: 12px; max-width: 240px; padding: 6px 10px; background: rgba(3,7,18,.75); border-radius: 8px; font-size: 12px; }
+.network-status span { display: block; color: #94a3b8; }
+.admin-auth, .room-settings { margin: 12px 0; }
+.room-settings { display: grid; gap: 8px; }
+.touch-dpad .ant-btn { touch-action: none; user-select: none; }
+@media (max-width: 520px) { .network-status { top: auto; bottom: 250px; right: 12px; } }

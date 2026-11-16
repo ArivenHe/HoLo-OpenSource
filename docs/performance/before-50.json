@@ -1,0 +1,35 @@
+{
+  "date": "2026-11-16T03:17:15.060Z",
+  "legacy": true,
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M4",
+    "cpuCount": 10,
+    "memoryGB": 16,
+    "node": "v26.12.0",
+    "topology": "load generator and server on same local host; no network impairment"
+  },
+  "players": 50,
+  "spectators": 6,
+  "seconds": 20,
+  "joinMs": 635.617583,
+  "joinBytes": 30495463,
+  "outboundBytes": 205255008,
+  "outboundMbps": 82.1020032,
+  "messages": 9800,
+  "acks": 0,
+  "moved": 0,
+  "blocked": 0,
+  "errors": 0,
+  "ackP50Ms": null,
+  "ackP95Ms": null,
+  "ackP99Ms": null,
+  "server": {
+    "samples": 0,
+    "eventLoopP95Ms": null,
+    "cpuP95PercentOfOneCore": null,
+    "rssMaxMB": null
+  },
+  "metrics": []
+}

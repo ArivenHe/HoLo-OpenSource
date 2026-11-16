@@ -9,6 +9,13 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?Set ADMIN_TOKEN in .env}
+      DEFAULT_PLAYER_LIMIT: ${DEFAULT_PLAYER_LIMIT:-50}
+      MAX_PLAYER_LIMIT: ${MAX_PLAYER_LIMIT:-50}
+      MAX_CONNECTIONS: ${MAX_CONNECTIONS:-100}
+      BROADCAST_HZ: ${BROADCAST_HZ:-12}
+      MAX_BUFFERED_BYTES: ${MAX_BUFFERED_BYTES:-131072}
+      SYNC_MODE: ${SYNC_MODE:-delta}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
       interval: 15s

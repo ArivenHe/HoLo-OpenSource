@@ -18,9 +18,13 @@ export function TeamSetup({ open, force = false, onClose }: TeamSetupProps) {
   const [form] = Form.useForm<JoinFormValues>();
   const [selectedFaction, setSelectedFaction] = useState<FactionId>('red');
   const join = useGameStore((state) => state.join);
+  const joinSuccess = useGameStore((state) => state.joinSuccess);
   const joining = useGameStore((state) => state.joining);
   const notice = useGameStore((state) => state.notice);
-  const players = useGameStore((state) => state.state.players);
+  const stats = useGameStore((state) => state.state.stats);
+  const ready = useGameStore((state) => state.ready);
+  const selfId = useGameStore((state) => state.selfId);
+  const players = useGameStore((state) => state.roster);
   const playerName = useGameStore((state) => state.playerName);
   const selectedStoredFaction = useGameStore((state) => state.selectedFaction);
   const rosters = useMemo(
@@ -38,9 +42,12 @@ export function TeamSetup({ open, force = false, onClose }: TeamSetupProps) {
     form.setFieldsValue({ name: playerName });
   }, [form, open, playerName, selectedStoredFaction]);
 
+  const full = stats.onlinePlayers >= stats.playerLimit && !players.some(p => p.id === selfId);
+
+  useEffect(() => { if (joinSuccess > 0) onClose(); }, [joinSuccess]);
+
   const handleFinish = (values: JoinFormValues) => {
     join(values.name, selectedFaction);
-    if (!force) onClose();
     window.requestAnimationFrame(() => {
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
@@ -65,7 +72,7 @@ export function TeamSetup({ open, force = false, onClose }: TeamSetupProps) {
       onCancel={onClose}
     >
       <Typography.Paragraph type="secondary" className="team-setup-copy">
-        填写昵称并选择队伍，NPC 会在队伍人数均衡后开始比赛。
+        填写昵称并选择队伍，由 NPC 统一开始，队伍人数无需均衡。当前 {stats.onlinePlayers}/{stats.playerLimit} 人。
       </Typography.Paragraph>
       {notice ? <Alert className="team-setup-alert" type="info" showIcon message={notice} /> : null}
       <Form<JoinFormValues> layout="vertical" form={form} onFinish={handleFinish}>
@@ -97,8 +104,8 @@ export function TeamSetup({ open, force = false, onClose }: TeamSetupProps) {
             </button>
           ))}
         </div>
-        <Button type="primary" htmlType="submit" block size="large" loading={joining}>
-          加入 {factions.find((faction) => faction.id === selectedFaction)?.name}
+        <Button type="primary" htmlType="submit" block size="large" loading={joining} disabled={!ready || full}>
+          {full ? '房间已满 · ' : ''}加入 {factions.find((faction) => faction.id === selectedFaction)?.name}
         </Button>
       </Form>
     </Modal>

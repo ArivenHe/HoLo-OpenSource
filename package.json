@@ -9,7 +9,10 @@
     "dev:server": "tsx server/index.ts",
     "build": "npm run typecheck && npm run build:client && npm run build:server",
     "build:client": "vite build --config client/vite.config.ts",
-    "build:server": "tsc -p server/tsconfig.json --outDir dist/server --rootDir server --noEmit false",
+    "build:server": "tsc -p server/tsconfig.json --outDir dist --rootDir . --noEmit false",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "benchmark": "node --import tsx scripts/benchmark.ts",
+    "loadtest": "node --import tsx scripts/loadtest.ts",
     "preview": "vite preview --host 0.0.0.0 --config client/vite.config.ts",
     "start": "node dist/server/index.js",
     "typecheck": "tsc --noEmit -p client/tsconfig.json && tsc --noEmit -p server/tsconfig.json"

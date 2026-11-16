@@ -1,8 +1,9 @@
-import { Alert, Button, Drawer, InputNumber, Progress, Slider, Space, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, Drawer, Input, InputNumber, Progress, Slider, Space, Tag, Tooltip, Typography } from 'antd';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Play, RotateCcw, Trophy } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { factions, formatDuration, leaderboardRows, useGameStore } from '../store/useGameStore';
 import type { Direction, FactionId, WorldConfig } from '../types/game';
+import { pressDirection, releaseDirection } from '../store/input';
 import { Leaderboard } from './Leaderboard';
 import { TeamSetup } from './TeamSetup';
 
@@ -68,7 +69,12 @@ function TeamRosterGrid({ rosters, compact = false }: { rosters: ReturnType<type
 
 function PlayerMatchOverlay({ onChangeTeam }: { onChangeTeam: () => void }) {
   const selfId = useGameStore((state) => state.selfId);
-  const serverState = useGameStore((state) => state.state);
+  const players = useGameStore((s) => s.roster);
+  const scores = useGameStore((s) => s.state.scores);
+  const match = useGameStore((s) => s.state.match);
+  const gameStats = useGameStore((s) => s.state.stats);
+  const roomConfig = useGameStore((s) => s.state.roomConfig);
+  const serverState = useMemo(() => ({ players, scores, match, stats: gameStats, roomConfig }), [players, scores, match, gameStats, roomConfig]);
   const selfPlayer = serverState.players.find((player) => player.id === selfId);
 
   if (!selfId || serverState.match.status === 'running') return null;
@@ -181,7 +187,11 @@ function MovePad() {
           className={control.className}
           icon={control.icon}
           aria-label={control.label}
-          onClick={() => sendMove(control.direction)}
+          onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); pressDirection(`pointer-${event.pointerId}`, control.direction); }}
+          onPointerUp={(event) => releaseDirection(`pointer-${event.pointerId}`)}
+          onPointerCancel={(event) => releaseDirection(`pointer-${event.pointerId}`)}
+          onLostPointerCapture={(event) => releaseDirection(`pointer-${event.pointerId}`)}
+          onClick={(event) => { if (event.detail === 0) sendMove(control.direction); }}
         />
       </Tooltip>
     );
@@ -218,13 +228,29 @@ export function UIOverlay() {
   const [mapWidth, setMapWidth] = useState(64);
   const [mapHeight, setMapHeight] = useState(64);
   const [boxCount, setBoxCount] = useState(220);
+  const [playerLimit, setPlayerLimit] = useState(50);
+  const [adminToken, setAdminToken] = useState('');
+  const adminAuthorized = useGameStore((s) => s.adminAuthorized);
+  const authenticateAdmin = useGameStore((s) => s.authenticateAdmin);
+  const saveRoomConfig = useGameStore((s) => s.saveRoomConfig);
+  const configSaving = useGameStore((s) => s.configSaving);
+  const adminPending = useGameStore((s) => s.adminPending);
+  const ready = useGameStore((s) => s.ready);
+  const rtt = useGameStore((s) => s.rtt);
+  const reconnecting = useGameStore((s) => s.reconnecting);
+  const metrics = useGameStore((s) => s.metrics);
   const isSpectator = window.location.pathname.includes('spectator');
   const connect = useGameStore((state) => state.connect);
   const connected = useGameStore((state) => state.connected);
   const selfId = useGameStore((state) => state.selfId);
   const notice = useGameStore((state) => state.notice);
   const map = useGameStore((state) => state.map);
-  const serverState = useGameStore((state) => state.state);
+  const players = useGameStore((s) => s.roster);
+  const scores = useGameStore((s) => s.state.scores);
+  const match = useGameStore((s) => s.state.match);
+  const gameStats = useGameStore((s) => s.state.stats);
+  const roomConfig = useGameStore((s) => s.state.roomConfig);
+  const serverState = useMemo(() => ({ players, scores, match, stats: gameStats, roomConfig }), [players, scores, match, gameStats, roomConfig]);
   const adminStart = useGameStore((state) => state.adminStart);
   const adminReset = useGameStore((state) => state.adminReset);
   const selfPlayer = serverState.players.find((player) => player.id === selfId);
@@ -246,10 +272,17 @@ export function UIOverlay() {
     setBoxCount(stats.boxCount);
   }, [map?.height, map?.width, stats.boxCount]);
 
+  useEffect(() => { setPlayerLimit(serverState.roomConfig.playerLimit); }, [serverState.roomConfig.playerLimit, serverState.roomConfig.version]);
+
   if (!isSpectator) {
     return (
       <>
         <PlayerScoreStrip scores={serverState.scores} />
+        <div className="network-status" role="status">
+          {reconnecting ? '正在重连…' : connected ? `${rtt ?? '—'} ms` : '未连接'} · {stats.onlinePlayers}/{stats.playerLimit} 人
+          {notice ? <span>{notice}</span> : null}
+          {connected && selfId && !serverState.players.some(p => p.id === selfId) ? <Button size="small" onClick={() => { setTeamSetupOpen(true); }}>重新加入</Button> : null}
+        </div>
         <PlayerMatchOverlay onChangeTeam={() => setTeamSetupOpen(true)} />
         <PlayerCameraPanel />
         {selfId && serverState.match.status === 'running' ? <MovePad /> : null}
@@ -263,10 +296,10 @@ export function UIOverlay() {
       <header className="top-hud">
         <div className="brand-block">
           <Typography.Text className="brand-kicker">Open Atom PU Activity</Typography.Text>
-          <Typography.Title level={1}>50 人实时 3D 推箱子阵营战</Typography.Title>
+          <Typography.Title level={1}>多人实时 3D 推箱子阵营战</Typography.Title>
         </div>
         <Space wrap>
-          <Tag color={connected ? 'green' : 'red'}>{connected ? '服务器已连接' : '未连接'}</Tag>
+          <Tag color={connected ? 'green' : 'red'}>{reconnecting ? '正在重连' : connected ? `服务器已连接 · ${rtt ?? '—'} ms` : '未连接'}</Tag>
           <Tag color={serverState.match.status === 'running' ? 'cyan' : 'purple'}>{statusText[serverState.match.status]}</Tag>
           <Tag color="gold">投屏上帝视角</Tag>
           <Button icon={<Trophy size={15} />} onClick={() => setLeaderOpen(true)}>
@@ -282,6 +315,20 @@ export function UIOverlay() {
           <Typography.Paragraph>
             所有玩家在同一张地图实时同步。后台开始后，四个阵营在限定时间内抢推同色箱子进基地。
           </Typography.Paragraph>
+          {!adminAuthorized ? (
+            <Space.Compact block className="admin-auth">
+              <Input.Password aria-label="管理密码" placeholder="输入管理密码" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} onPressEnter={() => authenticateAdmin(adminToken)} />
+              <Button disabled={!ready || !adminToken} onClick={() => authenticateAdmin(adminToken)}>解锁管理</Button>
+            </Space.Compact>
+          ) : <Tag color="green">已取得管理权限</Tag>}
+          <div className="room-settings">
+            <Typography.Text>房间人数上限</Typography.Text>
+            <Space wrap>
+              <InputNumber aria-label="房间人数上限" min={1} max={serverState.roomConfig.maxPlayerLimit} precision={0} value={playerLimit} disabled={!adminAuthorized || matchLocked || configSaving} onChange={(value) => setPlayerLimit(Number(value ?? stats.playerLimit))} />
+              <Button loading={configSaving} disabled={!ready || !adminAuthorized || matchLocked || playerLimit === stats.playerLimit} onClick={() => saveRoomConfig(playerLimit)}>保存房间设置</Button>
+            </Space>
+            <Typography.Text type="secondary">可设置 1～{serverState.roomConfig.maxPlayerLimit} 人，保存后立即生效；服务重启后恢复默认值。</Typography.Text>
+          </div>
           <div className="admin-config-grid">
             <label>
               <Typography.Text>时长</Typography.Text>
@@ -290,7 +337,7 @@ export function UIOverlay() {
                 max={90}
                 precision={0}
                 value={duration}
-                disabled={matchLocked}
+                disabled={matchLocked || !adminAuthorized}
                 onChange={(value) => setDuration(Number(value ?? 45))}
               />
               <Typography.Text className="duration-unit">分钟</Typography.Text>
@@ -302,7 +349,7 @@ export function UIOverlay() {
                 max={96}
                 precision={0}
                 value={mapWidth}
-                disabled={matchLocked}
+                disabled={matchLocked || !adminAuthorized}
                 onChange={(value) => setMapWidth(Number(value ?? 64))}
               />
             </label>
@@ -313,7 +360,7 @@ export function UIOverlay() {
                 max={96}
                 precision={0}
                 value={mapHeight}
-                disabled={matchLocked}
+                disabled={matchLocked || !adminAuthorized}
                 onChange={(value) => setMapHeight(Number(value ?? 64))}
               />
             </label>
@@ -324,7 +371,7 @@ export function UIOverlay() {
                 max={500}
                 precision={0}
                 value={boxCount}
-                disabled={matchLocked}
+                disabled={matchLocked || !adminAuthorized}
                 onChange={(value) => setBoxCount(Number(value ?? 220))}
               />
             </label>
@@ -334,11 +381,12 @@ export function UIOverlay() {
               type="primary"
               icon={<Play size={16} />}
               onClick={() => adminStart(duration * 60, mapConfig)}
-              disabled={!connected || matchLocked || !balance.balanced}
+              loading={adminPending}
+              disabled={!ready || !adminAuthorized || matchLocked || balance.total < 1 || adminPending}
             >
               NPC 开始
             </Button>
-            <Button danger icon={<RotateCcw size={16} />} onClick={() => adminReset(mapConfig)}>
+            <Button danger disabled={!ready || !adminAuthorized || adminPending} icon={<RotateCcw size={16} />} onClick={() => adminReset(mapConfig)}>
               重置战场
             </Button>
           </Space>
@@ -365,24 +413,28 @@ export function UIOverlay() {
           </div>
         </div>
 
+        {metrics && adminAuthorized ? <div className="panel-section">
+          <Typography.Text>连接 {metrics.connections} · 观众 {metrics.spectators} · 积压 {metrics.backpressured}</Typography.Text><br />
+          <Typography.Text type="secondary">广播 {metrics.broadcastHz} Hz · 事件循环 P95 {metrics.eventLoopP95Ms.toFixed(1)} ms · 内存 {metrics.rssMB.toFixed(0)} MB</Typography.Text>
+        </div> : null}
         <div className="panel-section team-balance-panel">
           <div className="panel-heading compact">
             <div>
               <Typography.Text className="eyebrow">Team Allocation</Typography.Text>
               <Typography.Title level={3}>队伍分配</Typography.Title>
             </div>
-            <Tag color={balance.balanced ? 'green' : 'orange'}>{balance.balanced ? '均衡可开始' : '需要调整'}</Tag>
+            <Tag color={balance.balanced ? 'green' : 'orange'}>{balance.total === 0 ? '等待玩家加入' : balance.balanced ? '人数均衡' : '不均衡也可开始'}</Tag>
           </div>
           <TeamRosterGrid rosters={balance.rosters} compact />
-          {!balance.balanced ? (
-            <Alert className="order-alert" type="warning" showIcon message="队伍人数差距需要控制在 1 人以内。" />
+          {!balance.balanced && balance.total > 0 ? (
+            <Alert className="order-alert" type="warning" showIcon message="队伍人数不均衡，可直接开始。" />
           ) : null}
         </div>
 
         <div className="panel-section clue-panel">
           <Typography.Text className="eyebrow">Battlefield</Typography.Text>
           <div className="order-chain">
-            {map ? `${map.width} x ${map.height} 巨型矩阵 · ${serverState.boxes.length} 个箱子` : '等待地图加载'}
+            {map ? `${map.width} x ${map.height} 巨型矩阵 · ${serverState.stats.boxCount} 个箱子` : '等待地图加载'}
           </div>
           {notice ? <Alert className="order-alert" type="info" showIcon message={notice} /> : null}
           <div className="score-list">
